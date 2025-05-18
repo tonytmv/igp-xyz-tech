@@ -1,0 +1,90 @@
+pipeline {
+    agent any
+
+    tools {
+        maven 'Maven' // Assumes Maven is configured in Jenkins global tools
+    }
+
+    environment {
+        IMAGE_NAME = 'tonytmv/xyz_tech'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+    }
+
+    stages {
+        stage('Tool Install') {
+            steps {
+                echo 'Tools configured via Jenkins global tool config'
+            }
+        }
+
+        stage('Code Checkout') {
+            steps {
+                // Update the URL below to your new repository if needed
+                git url: 'https://github.com/tonytmv/igp-xyz-tech'
+            }
+        }
+
+        stage('Code Compile') {
+            steps {
+                sh 'mvn compile'
+            }
+        }
+
+        stage('Code Test') {
+            steps {
+                sh 'mvn test'
+            }
+        }
+
+        stage('Code Packaging') {
+            steps {
+                sh 'mvn package'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh '''
+                    cp target/XYZtechnologies-1.0.war .
+                    docker build -t $IMAGE_NAME:$IMAGE_TAG .
+                '''
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                withCredentials([string(credentialsId: 'dockerhub-token', variable: 'DOCKER_TOKEN')]) {
+                    sh """
+                        echo "$DOCKER_TOKEN" | docker login -u tonytmv --password-stdin
+                        docker push $IMAGE_NAME:$IMAGE_TAG
+                    """
+                }
+            }
+        }
+
+        stage('Deploy Docker Container') {
+            steps {
+                sh '''
+                    docker stop xyz_container || true
+                    docker rm xyz_container || true
+                    docker run -d --name xyz_container -p 8081:8080 $IMAGE_NAME:$IMAGE_TAG
+                '''
+            }
+        }
+        stage('Deploy to Kubernetes') {
+            steps {
+                sh 'kubectl apply -f deployment.yaml'
+                sh 'kubectl apply -f service.yaml'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Build and deployment successful!'
+        }
+        failure {
+            echo 'Build failed! Check logs for errors.'
+        }
+    }
+} 
